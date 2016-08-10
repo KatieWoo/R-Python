@@ -1,0 +1,609 @@
+##Part 1
+##HEADER
+```{r}
+header = function(email){
+  if (grepl('From', email[1]) == T)
+    email = email[-1]
+  i = which(email == "")
+  index = 1:(i[1]-1)
+  header = email[index]
+  header = textConnection(header)
+  header = read.dcf(header)
+  header
+  }
+```
+##ATTACHMENT
+```{r}
+### Function attachment is to find an attachment for a email with an attachment
+boundary = function(email){
+  # get which line has the boudndary in this email. 
+  x = grep('boundary=', header(email))
+  boundary = header(email)[x]
+  boundary.str = unlist(strsplit(boundary, ';'))
+   boundary.str
+  # find the whole line of boundary= -------
+  boundary.str = grep('boundary=', boundary.str, value=T)
+  # get the main part of boundary.str
+  boundary.str = strsplit(boundary.str, 'boundary=')[[1]][2]
+  # delete quote
+  boundary.str = gsub('^ ', '', boundary.str)
+  boundary.str = gsub('"', '', boundary.str)
+  boundary.str = paste('--', boundary.str,sep = '')
+  boundary.str
+}
+attachment = function(email){
+  ##Check whether it has attachment or not 
+  ###if there is no boundary in the header, then it has no attachment. 
+  if (length(grep('boundary', header(email))) != 0){
+  boundary.str = boundary(email)
+  # get the end.str with adding -- to the end of boudary.str
+  end.str = paste(boundary.str, '--', sep= '')
+  j = grep(boundary.str, email, useBytes=TRUE, fixed = TRUE)
+  n2 = length(j)
+  i = grep(end.str, email, useBytes=TRUE, fixed = TRUE)
+  ((j[n2-1]+1) == i)
+  if (length(j) != 0){
+  if (length(i) != 0) 
+    if ((j[n2-1]+1) == i) ###if the penult of boundary is the line that right above the end.str, then there exists sub attachment. At this time, the attachment is between the last third boundary and the end.str. 
+      attachment = email[(j[n2-2]+1):(i-1)] else
+        attachment = email[(j[n2-1]+1):(i-1)] else ###if there is an end.str, then the last boundary that we find is the end.str, so the content between the penult boundary that we find and end.str is the attachment. 
+          attachment = email[(j[n2]+1):length(email)] ###if there is no end.str then the content after the last boundary is the attachment 
+  attachment1 = list()
+  attachment1$header = header(attachment)
+  i = which(attachment == "")
+  attachment1$body = attachment[(i[1]+1):length(attachment)]
+  attachment1
+  }else
+    attachment = NA
+  }else
+    attachment = NA
+}
+```
+##BODY
+```{r}
+body = function(email) {
+  ##Check whether it has attachment or not 
+  i = which(email == "")
+  if (length(grep('boundary', header(email))) != 0){
+    #if there exists boundary in the header, then it has attachments. For this email, body is the content between the fist boundary and the boundary of the attachment
+     boundary.str = boundary(email)
+     # get the end.str
+     end.str = paste(boundary.str, '--', sep= '')
+     j = grep(boundary.str, email, useBytes=TRUE, fixed=T)
+     n2 = length(j)
+     k = grep(end.str, email, useBytes=TRUE, fixed=T)
+     if (length(j) != 0){
+     if (length(k) != 0) 
+       body = paste(email[(i[1]):(j[n2-1]-1)], email[(j[n2]+1):length(email)], sep='') else ###if there is an end.str, then the last boundary that we find is the end.str, so the body is the content between the first blank line and the penult boundary that we find and the content after the end.str.   
+    body = email[(i[1]):(j[n2]-1)] ###if there is no end.str body is the content between the first blank line and the last boundary that we find. 
+    }else{
+      # if we cannot find the boundary.str in the email except the header, then the content except the heder is body.  
+      index = 1:(i[1]-1)
+      body = email[-index]
+    }
+    }else{
+      #if there is no boundary in the header, then it has no attachments. For this email, body is the content after the fist blank line.
+      index = 1:(i[1]-1)
+      body = email[-index]
+  }
+  body
+  }
+```
+##Apply the function of header, body, attachment to the whole folder
+```{r}
+setwd('/Users/FFFFFan/Documents/UCD/FALL2014/STA 141/HWK3/SpamAssassinTraining/')
+paths = list.files('/Users/FFFFFan/Documents/UCD/FALL2014/STA 141/HWK3/SpamAssassinTraining/', recursive = TRUE)
+TrainingMessages = list()
+for (path in paths) {
+  x = readLines(path)
+  # if there is mv existing in the bigfirst line of this email, then this email is not a vaild email, so skip it. 
+  if (grepl('^mv', x[1], ignore.case = F) == F){
+  email = list()
+  email$header = header(x)
+  email$body = body(x)
+  email$attachment = attachment(x)
+  } else
+    email = x
+  i = grep(path, paths)
+  # ist element of TrainingMessages is the information of ith email
+  TrainingMessages[[i]] = c(strsplit(path, '/'), email)
+}
+
+save(TrainingMessages, file = "/Users/FFFFFan/Documents/TrainingMessages.rda")
+```
+##Part 2
+```{r}
+library(stringr)
+load("/Users/FFFFFan/Downloads/TrainingMessages.rda") # whether mail is Spam or Ham
+
+isSpam = function(x){
+  grepl('spam', names(x)) }
+
+isRe = function(x){
+  header = x[[1]]$header # get the content of the header of x email.
+  l = grep('Subject', names(header), useBytes = T) # get the line where 'Subject' shows up.
+  if (length(l) == 0) FALSE else
+    grepl('^Re', header[l][1], useBytes = T)# test whether the line of 'Sub ject' starting with Re.
+  }
+
+numLinesInBody = function(x){ 
+  body = x [[1]]$body 
+  length(body)
+}
+
+bodyCharacterCount = function(x){ 
+  body = x[[1]]$body
+  sum(nchar(body, type = 'bytes')) }
+
+replyUnderline = function(x){
+  header = x[[1]]$header # get the content of the header of x email.
+  l = grep('^Reply-To$', names(header), useBytes = T) # get the line where 'Reply-To' shows up.
+  if (length(l) != 0)
+    grepl('_+([[:alpha:]]|[[:digit:]])+', header[l], useBytes = T) else
+      FALSE
+  }
+
+subjectExclamationCount = function(x){
+  header = x[[1]]$header # get the content of the header of x email.
+  l = grep('Subject', names(header), useBytes = T) # get the line where 'Subject' shows up.
+  if (length(l) != 0)
+    sum(str_count(header[l], '[!]')) else #count how many ! are there in the each line Subject, and get the sum of them
+      0
+  }
+  
+subjectQuestCount = function(x){
+    header = x[[1]]$header # get the content of the header of x email.
+    l = grep('Subject', names(header), useBytes = T) # get the line where 'Subject' shows up.
+    header[l]
+    if (length(l) != 0)
+      sum(str_count(header[l], '[?]')) 
+    else 
+      #count how many ? are there in the each line Subject, and get the sum of them
+        0
+  }
+    
+numAttachments = function(x){ 
+  attachment = x[[1]]$attachment
+  length(names(attachment))
+}
+
+priority = function(x){
+  header = x[[1]]$header # get the content of the header of x email.
+  l = grep('^X-Msmail-Priority$', names(header), useBytes = T) # get the line where 'X-Msmail-Priority' shows up.
+  m = grep('^X-Priority$', names(header), useBytes = T) 
+  if (length(l) == 0){
+    if (length(m) != 0)
+      grepl('1', header[m], useBytes = T) 
+    else 
+      FALSE} 
+  else
+    grepl('High', header[l], useBytes = T, ignore.case = TRUE) # 1 for X-Priority or high for X-Msmail-Priority means high
+}
+
+numRecipients = function(x){
+  header = x[[1]]$header
+  t = grep('^(To|Cc)$', names(header), useBytes=T) # get the line where 'To or Cc' shows up.
+  if (length(t) != 0){
+    rescipients = as.character(header[t]) # get the content of the line of To o r Cc
+    length(unlist(strsplit(rescipients, ','))) 
+    #1. split by ',', since more tha n one email is separated by ','. 
+    #2 length is the how many recepients that wewant to check.
+    }else
+      0
+  }
+
+precentCapitals = function(x){
+  body = x[[1]]$body
+  if (length(body) == 0)
+    0 
+  else{
+    body = gsub('([0-9]|[[:space:]]|[[:punct:]])', '', body, useBytes = T,
+perl = T) 
+    #exclude digits, blanks and punctuation body
+    if (sum(nchar(body,type = "bytes")) == 0) 
+      0 
+    else{
+      Capitals = str_count(body, '[A-Z]') 
+      # count how many capitals are there in each line of body
+      sum(nchar(Capitals))/sum(nchar(body, type = "bytes"))
+} }
+}
+
+isInReplyTo = function(x){
+  header = x[[1]]$header
+  if (length(header) != 0){
+    x = grep('^In-Reply-To', names(header), useBytes = T) if (length(x) != 0)
+      TRUE else FALSE} else
+        FALSE # if there is no header, then there is no InReplyTo
+}
+
+subjectPunctuationCheck = function(x){
+  header = x[[1]]$header
+  t = grep('^Subject$', names(header), useBytes = T) if (length(t) == 0)
+    FALSE else
+      grepl('([[:alpha:]][[:punct:]][[:alpha:]]|[[:alpha:]][[:digit:]][[:alph a:]])', as.character(header[t]), useBytes = T)
+}
+
+hourSent = function(x){
+  header = x[[1]]$header
+  t = grep('^Date$', names(header), useBytes = T) if (length(t) == 0)
+    -1 
+  else {
+    date = as.vector(header[t])
+    date = str_extract(date, "([0-9]{1,2}):([0-9]{1,2})(:([0-9]{1,2}))*")
+    str_extract(date, "^([0-9]{1,2})")
+  }
+  }
+
+multipartText = function(x){
+  header = x[[1]]$header
+  t = grep('Content-Type', names(header), useBytes = T) if (length(t) == 0)
+    FALSE 
+  else
+    grepl('^multipart', header[t], useBytes = T)
+  }
+
+isPGPsigned = function(x) {
+  header = x[[1]]$header
+  l = grep('^Content-Type', names(header), perl = T) 
+  if (length(l) == 0)
+    FALSE else
+# if signed shows in the content type, then the email was digitally signed.
+      grepl('signed', header[l], useBytes = T, ignore.case = T, perl = T)
+  }
+
+subjectSpamWords = function(x){
+  header = x[[1]]$header
+  t = grep('^Subject$', names(header), useBytes = T) 
+  if (length(t) == 0)
+    FALSE else
+      grepl('(viagra|pounds|free|weight|guarantee|millions|dollars|credit|risk| prescription|generic|drug|money back|credit card)', as.character(header[t]), useBytes = T, ignore.case = T)
+  }
+
+percentSubjectBlanks = function(x){
+   header = x[[1]]$header
+   l = grep('^Subject$', names(header), useBytes = T) 
+   if (length(t) == 0)
+     0 else{
+       if (sum(nchar(as.character(header[l]), type = 'bytes')) ==0)
+         0 else
+           # subsitute those are not blanks, then now, number of characters are the number of blacks in subject.
+           sum(nchar(gsub('[^ ]','', as.character(header[l])), type = 'bytes'))/sum(nchar(as.character(header[l]), type = 'bytes'))
+     }
+   }
+
+isYelling = function(x){
+  header = x[[1]]$header
+  l = grep('^Subject$', names(header), useBytes = T) if (length(t) == 0)
+  FALSE else{
+  if (sum(nchar(header[l], type = 'bytes')) == 0)
+    FALSE else{
+    # subsitite the noncapital string in the subject line
+      captial = gsub('[a-z]', '', header[l])
+      as.numeric(sum(nchar(captial, type= 'bytes'))/ sum(nchar(header[l], type = 'bytes'))) == 1 }
+    } }
+
+isDear = function(x){
+  body = x[[1]]$body
+  x = grep('Dear', body, useBytes = T) 
+  if (length(x) == 0)
+    FALSE 
+  else 
+    TRUE
+}
+
+f = function(l) {
+  lapply(1:length(trainMessages), function(i){ x = trainMessages[i]
+l(x)})
+  }
+
+f1 = function(x){ 
+  x = f(x)
+  unlist(x) }
+
+training = data.frame(f1(isSpam), f1(isRe), f1(numLinesInBody), f1(bodyCharac terCount), f1(replyUnderline), f1(subjectExclamationCount), f1(subjectQuestCo unt), f1(numAttachments), f1(priority), f1(numRecipients), f1(precentCapitals), f1(isInReplyTo), f1(subjectPunctuationCheck), f1(hourSent), f1(multipartText), f1(isPGPsigned), f1(subjectSpamWords), f1(percentSubjectBlanks), f1(isYelling), f1(isDear))
+  
+names(training) = c('isSpam', 'isRe', 'numLinesInBody', 'bodyCharacterCount', 'replyUnderline', 'subjectExclamationCount', 'subjectQuestCount', 'numAttach ments', 'priority', 'numRecipients', 'precentCapitals', 'isInReplyTo', 'subje ctPunctuationCheck', 'hourSent', 'multipartText', 'isPGPsigned', 'subjectSpam
+Words', 'percentSubjectBlanks', 'isYelling', 'isDear') 
+
+save(training, file = "/Users/FFFFFan/Desktop/training.rda")
+```
+#Part 3
+##For training data
+##KNN METHOD
+```{r}
+load("/Users/FFFFFan/Documents/UCD/FALL2014/STA 141/HWK5/trainVariables.rda")
+library(lattice)
+##randamly split the trainingdata into 10 folders. 
+CV = function(c){
+  n = nrow(trainVariables)
+  group = rep(1:c, n)
+  # shuffle the dataset
+  index = sample(n, n)
+  split(index, group)
+  }
+test.idx = CV(10)
+training = trainVariables
+
+
+#scale the quantative variables for trainVariable dataset
+class = sapply(training, class)
+index = grep('logical', class, invert = T)
+training[, index] = scale(training[, index])
+
+drop.first = function(x, drop)
+  # Remove the first instance of each value.
+  #
+  # Args:
+  #   x       vector to drop values from
+  #   drop    values to drop
+  #
+  # Return:
+  #   vector x without dropped element
+{
+    x[-match(drop, x)]
+}
+
+knn.clarify = function(k, test.idx, data, ...)
+  # get k - nearest neighboor for all the email in test.idx folder
+  #
+  # Args:
+  # k          k-nearest neighboor
+  # test.idx   index for the test folder in traning data
+  # training   dataset
+  # ...        distance method that we use, default is Euclidean distance
+  # 
+  # Return:
+  # a matrix with emails in this test foder as columns and k-nearest neighbor(k>1) for those email as rows or a integer with list of 1-nearest neighbor for those email.
+  {
+  # Make the dataset as a matrix except IsSpam variables. 
+    train = as.matrix(data[, -30]) 
+    # Get the distance matrix
+    dists = as.matrix(dist(train, ...)) 
+    # Get the order of distance matrix
+    ord = apply(dists, 2, order) 
+    ord = ord[, test.idx]
+    # Drop test point rows, for each column.
+    nn = apply(ord, 2, drop.first, drop = test.idx)
+    # Get the k nearest neighbors.
+    nn[seq_len(k), ]
+}
+vote =  function(u, knn, data) 
+  # vote this email is spam or not
+  #
+  # Args:
+  # u    uth email in test data 
+  # knn  k nearest neighbor we get from knn.clarify
+  # 
+  # Return:
+  # T/F 
+{ 
+  if (class(knn) == 'matrix') {
+  knn = knn[, u] # get k nearest neighboor for uth email in the test data 
+  Isspam = sapply(knn, function(v) data[v, 30]) #get the true IsSpam for k nearest email
+    if (length(which(!Isspam)) > length(which(Isspam))) # if more T show up, then predict the email is TRUE, otherwise it is FALSE
+  FALSE else
+    TRUE
+  }else
+    data[knn[u], 30]
+  }
+
+prediction = function(k, test.idx, data, ...)
+  # get vote for all the email in test.idx folder
+  #
+  # Args:
+  # the same as knn.clarify
+  # 
+  # Return:
+  # a sequence of T/Fs, length is the same as length of test.idx
+  {
+  knn = knn.clarify(k, test.idx, data, ...)
+  sapply(1:length(test.idx), function(v) vote(v, knn, data))
+}
+
+confusionmatrix = function(k, test.idx, data, ...)
+  # get confusion matrix for this test folder
+  #
+  # Args:
+  # the same as knn.clarify
+  # 
+  # Return:
+  # 2*2 confusion matrix 
+  {
+  data[test.idx, 31] = prediction(k, test.idx, data, ...)
+  table(data[test.idx, 31], data[test.idx, 30])
+}
+
+error = function(k, test.idx, data, ...)
+  # get type1, 2 and predict error for this test folder
+  #
+  # Args:
+  # the same as knn.clarify
+  # 
+  # Return:
+  # a list of type1, 2 and predict error 
+  {
+  table = confusionmatrix(k, test.idx, data, ...)
+  n = nrow(data[test.idx, ])
+  type1_error = table[1,2]/n 
+  type2_error = table[2,1]/n
+  predict_error = sum(table[1,2],table[2,1])/n
+  c(type1_error, type2_error, predict_error)
+  }
+
+avergerror = function(k, test.idx, data, ...)
+  # get average type1, 2 and predict error for this data
+  #
+  # Args:
+  # the same as knn.clarify
+  # 
+  # Return:
+  # a list of average type1, 2 and predict error 
+  {
+  error = sapply(1:length(test.idx), function(v) error(k, test.idx[[v]], data, ...))
+  apply(error, 1, mean)
+}
+
+```
+##A classification tree
+```{r}
+library(rpart)
+training1 = trainVariables
+transformation = function(tran, data){
+  class = sapply(data, class)
+  index = grep('logical', class, invert = T)
+  data[, index] = tran(data[, index])
+  data
+}
+
+classificationtree = function(data, data1 = data){
+  ct = rpart(isSpam~., data, method = 'class')
+  plot(ct);text(ct, xpd=T)
+  predi = predict(ct, data1)
+  ###transfer probability into T/F, if prob(F) > 0.5, then F, else T
+  predi1 = c()
+  for (i in (1:nrow(predi))){
+    if (predi[i,1] > predi[i,2])
+      predi1[i] = FALSE else
+        predi1[i] = TRUE
+    }
+predi1
+}
+
+tab = function(pred, data){
+  table = table(pred, data[ ,30])
+  rownames(table) = c('FALSE', 'TRUE')
+  table
+  }
+
+dis_index = function(pred, data) 
+  # get misclassified emails
+  #
+  # Args:
+  # pred  vote result for email in test data. 
+  # data  test data
+  # 
+  # Return:
+  # a list of misclassified emails
+  {
+  misclass = sapply(1:nrow(data), function(u) {
+    # if pred = truth, then it is classfier. 
+  if (pred[u] != data[u,30]) 
+    u})
+  unlist(misclass)
+}
+```
+##For test data
+###KNN
+```{r}
+load("/Users/FFFFFan/Documents/UCD/FALL2014/STA 141/HWK5/testData.rda")
+vote0 =  function(u, knn, test, train) 
+  # vote this email is spam or not
+  #
+  #Args:
+  # u    uth email in test data 
+{ 
+  knn = knn[,u]# get k nearest neighboor for uth email in the test data 
+  Isspam = sapply(knn, function(z) train[z, 30]) #get the true IsSpam for k nearest email
+  if (length(which(!Isspam)) > length(which(Isspam))) # if more T show up, then predict the email is TRUE, otherwise it is FALSE
+  FALSE else
+    TRUE
+  }
+
+knn.clarify0 = function(k, test, train, ...)
+  # get k-nestest neighbor for test data
+  #
+  #Args:
+  # k          k-nearest neighboor
+  # test       test dataset
+  # train   training dataset
+  # Return:
+  # a matrix with emails in this test data as columns and k-nearest neighbor(k>1) for those email as rows
+  {
+  # rbind the dataset as a matrix except IsSpam variables. 
+    train = as.matrix(rbind(train[, -30], test[,-30])) 
+    # Get the distance matrix
+    dists = as.matrix(dist(train, ...)) 
+    # Get the order of distance matrix
+    ord = apply(dists, 2, order) 
+    ord = ord[, (6541+1):(6541+nrow(test))]
+    # Drop test point rows, for each column.
+    nn = apply(ord, 2, drop.first, drop = (6541+1):(6541+nrow(test)))
+    # Get the k nearest neighbors.
+    nn[seq_len(k), ]
+}
+
+prediction0 = function(k, test, train, ...)
+  # get vote for all the email in test data
+  #
+  # Args:
+  # the same as knn.clarify
+  # 
+  # Return:
+  # a sequence of T/Fs
+  {
+  knn = knn.clarify0(k, test, train, ...)
+  sapply(1:nrow(test), function(v) vote0(v, knn, test, train))
+}
+
+confusionmatrix0 = function(pred)
+  # get confusion matrix for this test folder
+  #
+  # Args:
+  # pred  vote result for email in test data. 
+  # 
+  # Return:
+  # 2*2 confusion matrix 
+  {
+  testVariables[, 31] = pred
+  table(testVariables[, 31], testVariables[, 30])
+}
+
+pred = prediction0(3, testVariables, trainVariables, method = 'manhattan')
+table = confusionmatrix0(pred)
+table
+lerror(table)
+```
+###Classification tree
+```{r}
+training2 = transformation(scale, training1)
+predi = classificationtree(training2, testVariables)
+table = table(predi, testVariables[, 30])
+lerror(table)
+```
+##compare the behavior of the classifiers
+```{r}
+##For KNN
+dis.index = dis_index(pred, testVariables)
+index = c(1:2000)[-dis.index]
+miscla1 = testVariables[dis.index, ]
+cla1 = testVariables[-dis.index, ]
+
+##For classification tree
+dis.index1 = dis_index(predi, testVariables)
+index1 = c(1:2000)[-dis.index1]
+miscla2 = testVariables[dis.index1, ]
+cla2 = testVariables[-dis.index1, ]
+###Define match rate = length of matching index / length of misclassify/classify index
+## average match rate 
+length(intersect(dis.index, dis.index1))*2/(length(dis.index)+length(dis.index1))
+length(intersect(index, index1))*2/(length(index)+length(index1))
+
+summary(miscla1)
+summary(cla1)
+summary(miscla2)
+summary(cla2)
+```
+##Blind test data
+```{r}
+load("/Users/FFFFFan/Documents/UCD/FALL2014/STA 141/HWK5/blindTestData-2.rda")
+# KNN method
+blindTestVariables[, 30] = prediction0(3, blindTestVariables, trainVariables, method = 'manhattan')
+# Classification method
+training2 = transformation(scale, training1)
+blindTestVariables[, 31] = classificationtree(training2, blindTestVariables)
+colnames(blindTestVariables)[30:31] = c('Knn_P', 'ClassTree_P')
+save(blindTestVariables, file = "/Users/FFFFFan/Desktop/blindTestVariables.rda")
+match = (blindTestVariables[, 30] == blindTestVariables[, 31])
+length(grep('^TRUE', match))/nrow(blindTestVariables)
+```
