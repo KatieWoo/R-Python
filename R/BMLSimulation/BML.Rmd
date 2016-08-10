@@ -1,0 +1,363 @@
+```{r}
+library(animation)
+
+createBMLGrid = function(r = c, c = r, ncars = c(red, blue))
+  # This function generate a BMLgrid with dimension c*r,
+  # with randomly selected red and blue cars.
+  # c is the number of columns, r is for row.
+  # ncars is the number of cars that may be input as three ways:
+  # 1. the number of total cars
+  # 2. the number of red cars and blue cars
+  # 3. the proportion of cars of all the cells in GMLgrid
+  {
+  # if input is number of cars, 
+  # we consider the number of red and blue cars are equal
+  if (length(ncars) == 1)
+    ncars = rep(ncars/2, 2)
+  # if input is car ratio over total cells of grid
+  # ncars = ratio*(total cells) = ratio*r*c
+  if (any(ncars < 1))
+    ncars[ncars < 1] = ncars[ncars < 1]*r*c
+  if ((r|c) <= 0 | sum(ncars) <= 0 |sum(ncars) > r*c) {
+    stop('Demensions and ncars should be positive integers， ncars should not be more than product of demension')}
+  
+  grid = matrix('', r, c)
+  # randomly selects cars location out of r*c
+  pos = sample(x = r*c, sum(ncars), replace = FALSE)
+  # randomly select red and blue cars locations
+  grid[pos] = sample(rep(c("red", "blue"), 
+                         ceiling(ncars)))[seq_along(pos)]
+  # add a class BMLgrid to grid
+  class(grid) = c("BMLgrid", class(grid))
+  grid
+}
+
+Nextlocation = function(g, color, length, ...)
+  # This function returns the BMLgrid with the car moves at one step. 
+  # g is the BMLgrid, color is the color of car that we assisgned
+  # length is either the length of row or column
+  # ... is point at either 'row' or 'col' of the current position
+  {
+  # get the matrix index of cars in certain color, 
+  # such as blue and red. 
+  current = which(g == color , arr.ind = TRUE)
+  # the car moves along its row or col. 
+  move = (as.numeric(current[, ...]) + 1)
+  # If the car moves to the edge of the grid, 
+  # then it starts from the begining: 
+  # the first postions of its current row or column
+  move[move > length] = 1
+  nextl = current
+  # only the row or column changed compare to the car's current location
+  nextl[, ...] = move
+  # If the next position that the car tends to move is not empty,
+  # they it is stucked and stay at its current postion. 
+  check = (g[nextl] != '')
+  nextl[check, ] = current[check, ]
+  g[current] = ''
+  g[nextl] = color
+  g
+}
+
+
+moveCars = function(g, color)
+  # This function return the BMLgrid 
+  # with either red or blue car moves by 1 step
+  # color means the color of car that moves
+  {
+  if(color == 'blue')
+    # The blue car moves up along its column,
+    # so the column of its position stays the same and
+    # every move increase the row at 1 unit. 
+    # As long as it gets the edge of the grid
+    # (the end of the number of row), 
+    # it starts at the 1st row of its positon
+    Nextlocation(g = g, color, length = nrow(g), 'row')
+    else
+    # The red car moves right along its row,
+    # so the row of its position stays the same and
+    # every move increase the column at 1 unit. 
+    # As long as it gets the end of the number of column, 
+    # it starts at the 1st column of its positon.
+    Nextlocation(g = g, color, length = ncol(g), 'col')
+}
+
+
+
+runBMLGrid = function(g, numsteps)
+  # This function return the BMLgrid 
+  # after the cars moves by a certain number of steps.
+  # g is the first stage of BMLgrid
+  # numsteps is the number of moving steps. 
+  {
+  for (i in (1:numsteps)){
+    # if the time periods is odd, then the blue car moves, 
+    # otherwise, the red car moves. 
+    if (i%%2 == 1) 
+      g = moveCars(g, color = 'blue')
+    else
+      g = moveCars(g, color = 'red')
+    }
+  g
+}
+```
+Plot
+```{r}
+plot.BMLgrid = function(g)
+  # This function displays the grid
+  {
+  # Match the color to generate a matrix with numbers not characters
+  # each number represents one color
+  colmat = match(g, c('red', 'blue', ''))
+  g = matrix(colmat, nrow(g), ncol(g))
+  image(t(g), col = c('red', 'blue', 'white'), axes = FALSE, main = 'Car Move Simulation')
+  box()
+  }
+```
+Summary
+```{r}
+summary.BMLgrid = function(g) 
+  # This summary funtion returns general inforamtion of the BMLgrid:
+  # the dimension, the number of cars, red cars and blue cars, 
+  # and the ratio of cars, blue cars, red cars over total cells of BMLgrid
+  {
+  NUM = rbind(Totcar = sum(g != ''), 
+                       redcar = sum(g == 'red'), 
+                       bluecar = sum(g == 'blue'))
+  colnames(NUM) = 'NUM'
+  RATIO = NUM/prod(dim(g))
+  colnames(RATIO) = 'RATIO'
+  list(Demention = dim(g),
+       CarsNum = cbind(NUM, RATIO)
+       )
+}
+```
+The number of car that moved, that were bloked and average velocity.
+```{r}
+NumCarMBV = function(oldpos, newpos)
+  # This function returns a list of the number of cars that moved, 
+  # were blocked and the velocity at one time period.
+  # oldpos is the postion at time period t
+  # newpos is the postion at time period t + 1
+  {
+  # unmatched cell is the moved car and its next empty cell
+  # so the number of move car is total unmached cell divided by 2. 
+  redmove = sum(!(oldpos == 'red') == (newpos == 'red'))/2
+  bluemove = sum(!(oldpos == 'blue') == (newpos == 'blue'))/2
+  # find which color of cars move at this time
+  move = redmove + bluemove
+  summary = summary.BMLgrid(oldpos)$CarsNum[, 'NUM']
+  totalcar = summary['Totcar']
+  # The number of stuck car is total cars minus move cars
+  carblock = totalcar - carmove
+  # We define the Velocity as ratio of the move car to the total car. 
+  # Average velocity is the average of blue and red car velocity. 
+  velocity = mean(c(redmove/summary['redcar'], bluemove/summary['bluecar']))
+  list(NumCarMove = carmove, 
+       NumCarBlock = carblock, 
+       velocity = velocity)
+}
+
+Allmbv = function(g.out)
+  # This function returna a list of the number of cars 
+  # that moved, were blocked and the velocity at every time period.
+  # g.out is a list of every stage BMLGrid 
+  # during a certain number of steps. 
+  {
+  all = c()
+  for (i in (2:length(g.out))){
+    oldpos = g.out[[i-1]]
+    newpos = g.out[[i]]
+    all[[i]] = NumCarMBV(oldpos, newpos)
+}
+all
+}
+
+getall
+
+g = createBMLGrid(10, 10, 0.5)
+g.all = AllstageBMLgrid(g, numsteps = 100)
+saveGIF(sapply(g.all, plot.BMLgrid))
+system.time(runBMLGrid(g, numsteps = 10000))
+```
+The performance of the code
+```{r}
+library(ggplot2)
+library(reshape)
+time = function(g, numsteps){
+  t = system.time(runBMLGrid(g, numsteps))['elapsed']
+}
+# different grid sizes with numsteps 1000 and rho 0.5
+alltime = function(...){
+  g = sapply(seq(10, 1010, by = 100), createBMLGrid, ...)
+  sapply(g, time, numsteps = 200)
+}
+t0 = alltime(ncars = 0.1)
+t1 = alltime(ncars = 0.3)
+t2 = alltime(ncars = 0.5)
+t3 = alltime(ncars = 0.7)
+t4 = alltime(ncars = 0.9)
+time = as.data.frame(cbind(t0, t1, t2, t3, t4))
+rownames(time) = seq(10, 1010, by = 100)
+colnames(time) = paste0(rep('rho', 5), seq(0.1, 0.9, by = 0.2))
+time = cbind(time, dim = seq(10, 1010, by = 100)^2)
+par(mfrow = c(1, 1))
+time = melt(time, id = 'dim', variable_name = 'difdim')
+ggplot(time, aes(dim, value, col = factor(difdim),linetype = factor(difdim), shape = factor(difdim))) + geom_line(size = 2) + labs(title = 'The Elapsed Time, Size and Density in R', x = 'Number of Grid Cells', y = 'Elapsed Time/s') + geom_point(size = 4) + theme(text = element_text(size=20), axis.text=element_text(colour="black", size = 20)) 
+```
+Analysis
+```{r}
+getallvel = function(g, numsteps)
+  #This function returns a list of average velocity at every time period
+  {
+  g.all = AllstageBMLgrid(g, numsteps)
+  unlist(sapply(Allmbv(g.all), '[', 3))
+}
+
+multiplot = function(vel, ...)
+  # This function returns multiple plots
+  # vel a multiple list of average velocity 
+  # ... some format of plot such as lab, main. 
+  {
+  sapply(vel, plot, type = 'l', mex = 5, lwd = 5, ...)
+}
+```
+```{r}
+# 10*10
+g = lapply((1:6)*0.1, createBMLGrid, c = 10, r = 10)
+vel = lapply(g, getallvel, numsteps = 100)
+p = multiplot(vel, ylab = 'Velocity', main = 'Velocity From Time 10 to 45(dim = 10*10)', xlab = 'Number of Steps', xlim = c(10, 45))
+
+# 100*100
+g = lapply((2:7)*0.1, createBMLGrid, c = 100, r = 100)
+vel = lapply(g, getallvel, numsteps = 3000)
+par(mfrow = c(3, 2))
+multiplot(vel, ylab = 'Velocity', main = 'Velocity From Time 10 to 45(dim = 10*10)', xlab = 'Number of Steps', xlim = c(0, 1000))
+
+g = lapply((35:40)*0.01, createBMLGrid, c = 100, r = 100)
+vel = lapply(g, getallvel, numsteps = 10000)
+par(mfrow = c(3, 2))
+sapply(vel, plot, type = 'l', ylab = 'Velocity', xlab = 'Number of Time Periods', xlim = c(400, 500), main = 'Velocity From Time 400 to 500', xlim = c())
+
+# 500*500
+g = lapply((3:7)*0.1, createBMLGrid, c = 500, r = 500)
+vel = lapply(g, getallvel, numsteps = 200)
+par(mfrow = c(3, 2))
+sapply(vel, plot, type = 'l', ylab = 'Velocity', main = 'Velocity From Time 40 to 60')
+```
+
+```{r}
+# 100*100
+g = lapply((3:7)*0.1, createBMLGrid, c = 100, r = 100)
+lapply(g, summary)
+vel = lapply(g, getallvel, numsteps = 200)
+par(mfrow = c(3, 2))
+sapply(vel, plot, type = 'l', ylab = 'Velocity', main = 'Velocity From Time 40 to 60')
+````
+
+
+慢的 版本2
+```{r}
+moveCars = function(g, color){
+  white = which(g == '', arr.ind = TRUE)
+  if(color = 'blue'){
+    blue = which(g == color , arr.ind = TRUE)
+    row = (as.numeric(blue[,'row']) + 1) %% nrow(g)
+    row[row == 0] = nrow(g)
+    nextblue = cbind(row, col = blue[, 'col'])
+    nextblue[g[nextblue] != '', ] = blue[g[nextblue] != '', ]
+    g[blue] = ''
+    g[nextblue] = 'blue'
+  }else if (color == 'red'){
+    red = which(g == color, arr.ind = TRUE)
+    col = (as.numeric(red[,'col'])+1) %% ncol(g)
+    col[col == 0] = ncol(g)
+    nextred = red
+    nextred[, 'col'] = col
+    nextred[g[nextred] != '',] = red[g[nextred] != '', ]
+    g[red] = ''
+    g[nextred] = 'red'
+  }
+  g
+}
+```
+慢的 版本1
+```{r}
+car_next_location = function(currentpos, nextpos, white){ 
+  # check if next position is empty
+  checkempty = match(interaction(white[, 'row'], white[, 'col']), 
+                     interaction(nextpos[, 'row'], nextpos[, 'col'])
+  )
+  if (any(is.na(checkempty))){
+    if (all(is.na(checkempty)))
+      nextpos = currentpos else{
+        checkempty = checkempty[!is.na(checkempty)]
+        nextpos[-checkempty, ] = currentpos[-checkempty, ]
+      }}
+  nextpos
+}
+
+moveCarsold = function(g, col = ...){
+  white = which(g == '', arr.ind = TRUE)
+  if(col == 'blue'){
+    blue = which(g == col, arr.ind = TRUE)
+    row = (as.numeric(blue[,'row']) + 1) %% nrow(g)
+    row[row == 0] = nrow(g)
+    nextblue = cbind(row, col = blue[, 'col'])
+    nextblue = car_next_location(blue, nextblue, white)
+    g[blue] = ''
+    g[nextblue] = 'blue'
+  }else if (col == 'red'){
+    red = which(g == col, arr.ind = TRUE)
+    col = (as.numeric(red[,'col'])+1)%%ncol(g)
+    col[col == 0] = ncol(g)
+    nextred = cbind(row = red[, 'row'], col = col)
+    nextred = car_next_location(red, nextred, white)
+    g[red] = ''
+    g[nextred] = 'red'
+  }
+  g
+}
+
+
+NumCarMove = function(oldpos, newpos)
+  # This function returns the number of cars that can move。
+  # oldpos is the postion at time period t
+  # newpos is the postion at time period t + 1
+  {
+  # unmatched cell is the moved car and its next empty cell
+  # so the number of move car is total unmached cell divided by 2. 
+  sum(!oldpos == newpos)/2
+}
+
+NumCarStuck = function(oldpos, newpos)
+  #This function returns the number of cars that gets stucked
+  {
+  # The number of stuck car is total cars minus move cars
+  sum(oldpos != '') - sum(!oldpos == newpos)/2
+}
+
+Velocity = function(oldpos, newpos)
+  # We define the Velocity as ratio of the move car to the total car. 
+  # This function return velocity. 
+  {
+  (sum(!oldpos == newpos)/2)/(sum(oldpos != ''))
+}
+
+
+
+Allmsv = function(g.out)
+  # 
+  {
+  move = c()
+  stuck = c()
+  v = c()
+  for (i in (2:length(g.out))){
+    oldpos = g.out[[i-1]]
+    newpos = g.out[[i]]
+    move[i] = NumCarMove(oldpos, newpos)
+    stuck[i] = NumCarStuck(oldpos, newpos)
+    v[i] = Velocity(oldpos, newpos)
+}
+list(carmove=move, carstuck = stuck, velocity = v)
+}

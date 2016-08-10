@@ -1,0 +1,367 @@
+---
+output: word_document
+---
+##APEENDIX 1
+```{r}
+setwd('/Users/FFFFFan/Documents/stat242_2015/Assignment1/data/')
+u = list.files()
+library(stringr)
+
+readdata = function(filename){
+  wid = extract.widths(filename)
+  dat = read.fwf(filename, widths = wid, comment.char = '', stringsAsFactors = FALSE)
+  h.index = grep('Place', dat[, 1], ignore.case = T)
+  header = extract.header(filename, dat, h.index)
+  names(dat) = header
+  dat = extract.body(filename, dat, h.index)
+  as.data.frame(dat)
+}
+
+
+extract.widths = 
+  # This function extract widths for the function read.fwf
+  function(filename) {
+    # To deal with data women10Mile_2001 that is without header and '==' line
+    # We find that data women10Mile_2002 has similar data with it 
+    # We decide to use the widths of 2002 to read data 2001 
+    # and treat div/tot as two variables
+    if (filename == u[15]) 
+      filename = u[16]
+    file = readLines(filename, warn = FALSE)
+    h = grep('Place', file, ignore.case = T, value = T)[1]
+    index = as.numeric(str_locate(h, c('/')))[1]
+    # get the line with '====='
+    bound = grep('===', file, ignore.case = T, value = T)
+    # reduce 2 space into 1
+    bound = gsub('=  =', '== =', bound)
+    if (!is.na(index))
+      substr(bound, index, index) = ' '
+    # split the '==='line with space
+    len = unlist(strsplit(bound, '[[:space:]]+'))
+    l = as.numeric(sapply(len, nchar))
+    l = l+1
+    # To deal with  data men10Mile_2006 that two variable 
+    # howntown and Net tim are sticky together
+    # We first find the location of H, N to get the length of variable hometown
+    # then split one widths into 2 according to that. 
+    if (filename == u[8]|filename == u[20]){
+      h = grep('place', file, ignore.case = T, value = T)[1]
+      index = str_locate_all(h, c('H', 'Ne'))
+      # find the length of hometown variable
+      lengthH = index[[2]][1]-index[[1]][1]
+      # split '=='with space or '/'
+      h1 = unlist(strsplit(h, '[a-z]([[:space:]]|/)'))
+      # find the location of sticky variable in the header
+      index.HN = grep('H', h1)
+      length = c(lengthH, l[index.HN]-lengthH)
+      l = c(l[1:(index.HN-1)], length, l[(index.HN+1): length(l)])
+    }
+    l
+    }
+
+
+extract.header = 
+  # This function extract header for the data
+  # make variable consistent for all the data:
+  # 1. upper all the variable
+  # 2. delete space within each variable name
+  # 3. transfer the name
+  function(filename, dat, h.index){
+  if (filename == u[[15]]){
+    filename = u[[16]]
+    dat = read.fwf(filename, widths = extract.widths(filename), comment.char = '')
+    h.index = grep('Place', dat[, 1], ignore.case = T)
+    }
+  header = unlist(dat[h.index, ])
+  #convert the header into upper cases to make them consistent
+  header = toupper(header)
+  header = gsub('\\s', '', header)
+  header = gsub('DIV/', 'DIV', header)
+  # transfer header 'GUN', 'NET' or 'GUNTIM', 'NETTIM' 
+  # into  the same name '(GUN|NET)TIM'
+  # and 'TIME' into 'GUNTIME', since Gun Time is the Official Time, 
+  # the data only contains TIME refer to Gun Time. 
+  a = grep('NET', header)
+  b = grep('GUN|TIME', header)
+  header[a] = 'NETTIM'
+  header[b] = 'GUNTIM'
+  header = gsub('\\s', '', header)
+  # Make variable '5MILE' and '5MI' both name '5MI'
+  header = gsub('5MILE', '5MI', header)
+  header
+  }
+
+
+####convert time variable
+TtoS = 
+  #This function convert time(xx:xx:xx) into seconds
+  function(time){
+    time = 
+    time = as.numeric(strsplit(as.character(time), ':')[[1]])
+    # To deal with time cell without value, we consider it as NA.
+    # To deal with xx:xx and xx,
+    # we let time = xx1:xx2:xx3 
+    # seconds = c(xx1, xx2, xx3)*60^c(length(time)-1, length(time)-2,...,0)
+    if (length(time) != 0) {
+    transfer = 60^seq(length(time)-1, 0, by = -1) 
+    time = sum(time*transfer)} else
+      time = NA
+}
+
+convertT = 
+  # This function convert all the time element in the data into seconds
+  function(dat){
+    tim.index = grep(':[0-9]{2}', as.character(dat[1, ]))
+    tim.index1 = grep(':[0-9]{2}', as.character(dat[2, ]))
+    # Sometimes, not all variables in first row have value.
+    # At this situation, we use second row to find xx:xx:xx locations
+    if (length(tim.index) < length(tim.index1))
+      tim.index = tim.index1
+    dat[, tim.index] = sapply(dat[, tim.index], TtoS)
+    dat
+  }
+  
+
+extract.symbol = 
+  # This function extract the special symbol into a list of TRUE and FALSE
+  # when symbol exists, TRUE, else FALSE
+  function(dat, ...){
+  var.symbol = c()
+  # check whether each cell contains the special symbol
+  lis = apply(dat, 2, grepl,...) 
+  for (i in 1:nrow(lis))
+    # For each row, if there exists more than one TRUE, 
+    # then this observation has the special symbol
+  var.symbol[[i]] = any(lis[i, ] == T)
+  var.symbol
+  }
+
+changeclass = function(dat)
+  # This function change the class of data
+  # convert into numeric and character class
+  { 
+  dat = as.data.frame(dat)
+  # delete the starting and ending space in cells of dat, otherwise, 
+  # since character cells are in factor class, 
+  # when apply as.character, it will be change into numbers
+  dat1 = sapply(dat, str_trim)
+  # if cells of variables only contain numbers, then convert it to numeric class
+  # sometimes, if some variable in the first line don't have value, 
+  # then use the second line to find numeric cell locations
+  int.index = grep('^[0-9]+$', as.character(dat1[1, ]))
+  int.index1 = grep('^[0-9]+$', as.character(dat1[2, ]))
+    if (length(int.index) < length(int.index1))
+      int.index = int.index1
+  dat[, int.index] = apply(dat1[, int.index], 2, as.numeric)
+  # convert variable HOMETOWN and NAME into character class
+  # if there is no HOMETOWN variable, only convert NAME
+  if (any(grepl('HOMETOWN', names(dat))))
+    dat[, c('HOMETOWN', 'NAME')] = apply(dat1[, c('HOMETOWN', 'NAME')], 2, as.character) else
+      dat[, 'NAME'] = as.character(dat[, 'NAME'])
+  dat
+  }
+
+extract.body = function(filename, dat, h.index){
+  # This function extract the body for the data
+  # divide DIV/TOT into 2 variables
+  # and new variable STAR and POUND
+  if (length(h.index) == 0) 
+    h.index = 0
+  # get the table of data
+ numdat = grep('[1-9]+', dat[, 1], ignore.case = T)
+ # the content of data should be below the header line
+ numdat = numdat[numdat > h.index]
+ body = dat[numdat, ]
+ # get rid of '===' line
+ bound = grep('===', dat[, 1], ignore.case = T)
+ if (length(bound) != 0) 
+   body = body[-bound, ] else
+    body = body
+ # make name upper case and git rid of spaces outside the name pattern. 
+ body[, 'STAR'] = extract.symbol(body, pattern = '[*]')
+ body[, 'POUND'] = extract.symbol(body, pattern = '[#]')
+ # delete '/' signal of variable DIV and *# after some time variable
+ body = as.data.frame(apply(body, 2, gsub, pattern = '[*#/]', replacement = ''))
+ body = sapply(body, str_trim)
+ body = convertT(body)
+ body = changeclass(body)
+ body[, 'NAME'] = toupper(body[, 'NAME'])
+ if (any(grepl('^S$', names(body))))
+   body[, 'S'] = as.factor(as.character(body[, 'S']) == '!')
+ body
+}
+
+
+add.variable = 
+  # This function add variable Gender, Year according to its filename
+  # add the variable BirthY = year - age
+  # split hometown into 3 varaible named City, State, Country
+  function(filename){
+  dat = readdata(filename)
+  dat[, 'GENDER'] = as.factor(toupper(substring(filename, 1, 1)))
+  dat[, 'YEAR'] = as.integer(unlist(strsplit(filename, '_'))[2])
+  dat[, 'BIRTHY'] = dat[, 'YEAR'] - dat[, 'AG']
+  dat = Split.hometown1(filename, dat)
+  dat
+}
+
+Split.hometown1 = function(filename, dat){
+  if (!grepl('2006', filename)){
+  dat[, 'STATE'] = sapply(1:nrow(dat), function(i) {
+    home = strsplit(dat[i, 'HOMETOWN'], ' ')[[1]]
+    if (any(grepl('^[A-Z]{2}$', home))) {
+      index = grep('^[A-Z]{2}$', home)
+      home[index]}else
+      ' ' 
+    })
+    dat[, 'CITY'] = sapply(1:nrow(dat), function(i) {
+    home = strsplit(dat[i, 'HOMETOWN'], ' ')[[1]]
+    if (any(grepl('^[A-Z]{2}$', home))) {
+      gsub('[A-Z]{2}$', '',dat[i, 'HOMETOWN'])
+      }else
+      ' ' 
+    })
+    dat[, 'COUNTRY'] = sapply(1:nrow(dat), function(i) {
+    home = strsplit(dat[i, 'HOMETOWN'], ' ')[[1]]
+    if (any(grepl('^[A-Z]{2}$', home))) {
+      'USA'
+      }else
+      toupper(substr(dat[i, 'HOMETOWN'], 1, 3))
+    })
+  }
+  dat
+}
+
+#####Trying to use city and State from data except 2006 to match the state of the hometown of 2006 data. However, for data male2006, female2006, hard to decide the state of city, Washington may from DC or VA and Russia may represent a country or city in OH state, so we use data except 2006 to analysis hometown variable, such as CITY, STATE, COUNTRY. 
+
+Split.hometown2 = function(test, filename){
+  if (grepl('2006', filename)){
+    checkstat = do.call(rbind.fill, test)[, c('CITY', 'STATE')]
+    checkstat = unique(checkstat)
+    dat = test[[filename]]
+    dat[, 'STATE'] = checkstat[match(str_trim(dat[, 'HOMETOWN']), checkstat[ ,'CITY']), 'STATE']
+    dat[, 'COUNTRY'] = sapply(1:nrow(dat), function(i) {
+      if (!is.na(dat[i, 'STATE'])|(dat[i, 'HOMETOWN'] == 'United States')) {
+      'USA'
+      }else 
+      toupper(substr(dat[i, 'HOMETOWN'], 1, 3))
+    })
+    dat[!is.na(dat[, 'STATE']), 'CITY'] = dat[!is.na(dat[, 'STATE']), 'HOMETOWN']
+}else
+  dat = test[[filename]]
+dat}
+
+newdata2 = sapply(u, add.variable)
+library(plyr)
+finaldata = do.call(rbind.fill, newdata2)
+sapply(finaldata, class)
+
+
+```
+#ANALYSIS
+1. which country except USA has the most competitor???KEN
+```{r}
+library(ggplot2)
+sort(table(finaldata$COUNTRY), decreasing = T)[1:2]
+```
+2. Which pair of city state in USA has the most competitor and which city? Washington, DC
+```{r}
+df = data.frame(finaldata$CITY, finaldata$STATE)
+sort(table(as.character(interaction(df))), decreasing = T)[1]
+summary(factor(finaldata$HOMETOWN))
+```
+3. Does GUN TIME differ from years and gender?
+```{r}
+ggplot(finaldata)+geom_density(aes(x = GUNTIM, color=as.factor(YEAR)))+facet_wrap(~GENDER)+ggtitle('Density of Gun Time over Year on Gender')
+```
+4. They divide the group by AG and there is no difference between gender within each year. 
+```{r}
+ggplot(finaldata)+geom_point(aes(x=AG, y = TOT, color = factor(GENDER)))+facet_wrap(~YEAR)+ggtitle('TOT V.S AG')
+````
+5. Which country win the most Cherry Blossom 10-mile running race? Kenya 
+```{r}
+dotchart(sort(table(finaldata[finaldata$PLACE == 1, 'COUNTRY']), decreasing = T), main = 'Winners')
+sort(table(finaldata[finaldata$PLACE == 1, 'AG']), decreasing = T)
+```
+6. Which country did the best job?
+Tanzania 
+```{r}
+sort(sapply(split(finaldata$GUNTIM, finaldata$COUNTRY), mean, na.rm = T))[1]
+sort(sapply(split(finaldata$GUNTIM, finaldata$COUNTRY), median, na.rm = T))[1]
+```
+7. More and more people tend to attend this race. From 199-2005, there are more male competitors then female, while after 2005, female more than male. Female has increasing more rapidly than male. 
+```{r}
+sapply(split(finaldata, finaldata$YEAR), nrow)
+ggplot(data = finaldata) + geom_bar(aes(x = YEAR,fill = factor(GENDER)), position='identity',alpha=0.5) + ggtitle('COMPITITORS COUNT AMONG YEAR GROUP BY AGE')
+total = sapply(split(finaldata, list(finaldata$YEAR, finaldata$GENDER)), nrow)
+male = total[1:12]
+male = transform(male, growth = ave(male, 
+                         FUN=function(x) c(NA,exp(diff(log(x)))-1)))
+female = total[13:24]
+female = transform(female, growth = ave(female, 
+                         FUN=function(x) c(NA,exp(diff(log(x)))-1)))
+grow = rbind(male, female)
+data = data.frame(Growth = grow$growth, Year = rep(1999:2010, 2), Gender = rep(c('M', 'W'), each = 12))
+ggplot(data = data, aes(y = Growth, x = Year, color = factor(Gender))) + geom_line()+ geom_point() + ggtitle('GROWTH RATE AMONG YEAR GROUP BY GENDER')
+```
+8. AGE AND PLACE . Average PLACE among AGE 23-50 is quite flat than others. After age 50, the gun time increases rapidly. 
+```{r}
+d = ggplot(finaldata, aes(x = AG, y = PLACE))
+d + stat_summary(fun.y='mean',geom='line') + ggtitle('Average Place for Each Age')
+sort(sapply(split(finaldata$PLACE, finaldata$AG), median, na.rm = T))[1:3]
+```
+9. AGE and YEAR and GENDER
+```{r}
+table(finaldata$GENDER)
+d = ggplot(finaldata, aes(AG))
+d + geom_histogram(position = 'identity',
+    alpha=0.5,
+    aes(y = ..density..,
+    fill = factor(GENDER))) +
+    stat_density(geom = 'line',
+    position = 'identity',
+    aes(colour = factor(GENDER))) + facet_wrap(~YEAR) + ggtitle('Age Density Cross the Year on Gender')
+```
+10.AGE GUNTIM similiar to AGE and PLACE
+```{r}
+d = ggplot(finaldata, aes(x = AG, y = PLACE))
+d + stat_summary(fun.y='mean',geom='line') + ggtitle('Average Place for Each Age')
+smoothScatter(finaldata$AG, finaldata$GUNTIM)
+```
+11. DIV and PLACE positive association
+```{r}
+d = ggplot(finaldata, aes(x = DIV, y = PLACE))
+d + stat_summary(fun.y='mean',geom='line') + ggtitle('DIV vs PLACE')
+```
+12. PLACE AND TOT no obvious relationship. 
+```{r}
+d = ggplot(finaldata, aes(x = TOT, y = PLACE))
+d + stat_summary(fun.y='mean',geom='line') + ggtitle('DIV vs PLACE')
+```
+13. EN did the best job, but what is state EN?
+```{r}
+d = ggplot(finaldata, aes(y = GUNTIM, x = STATE))
+d + stat_summary(fun.y = 'mean',geom='bar') + ggtitle('MEAN GUN TIME vs STATE')
+```
+14. PLACE AND GUNT IME no obvious relationship. 
+```{r}
+d = ggplot(finaldata, aes(x = TOT, y = GUNTIM))
+d + stat_summary(fun.y='mean',geom='line') + ggtitle('TOT vs GUN TIME')
+```
+15.  Year and GUNTIME
+```{r}
+d = ggplot(finaldata, aes(x = factor(YEAR), y = GUNTIM))
+d + geom_boxplot() + ggtitle('YEAR vs GUN TIME')
+```
+16. longitudinal data and plot
+```{r}
+finaldata[, 'UNIQUE'] = paste(str_trim(finaldata$NAME), str_trim(finaldata$CITY), str_trim(finaldata$STATE), str_trim(finaldata$COUNTRY), str_trim(finaldata$BIRTHY), sep = ' ')
+name = names(sort(table(finaldata$UNIQUE), decreasing = T)[1:12])
+longplot = function(name, dat = finadata){
+  index = match(name, finaldata$UNIQUE)
+  newdata = finaldata[finaldata$UNIQUE == name, c('GUNTIM', 'YEAR', 'UNIQUE')]
+  plot(data = newdata, GUNTIM ~ YEAR, main = name, type = 'b')
+}
+par(mfrow = c(3, 2))
+sapply(name[1:6], longplot)
+sapply(name[7:12], longplot)
